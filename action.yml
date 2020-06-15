@@ -1,0 +1,19 @@
+name: "Release Notes Generator"
+description: "Generate release notes based on commit messages between last release and the current one"
+inputs:
+  release_preffix: # id of input
+    description: 'Pattern utilized to decribe release branches. Default: "releases/" Eg: releases/1.2.3'
+    required: true
+    default: "releases/"
+  release: # id of input
+    description: "Version for the release to be deployed"
+    required: true
+outputs:
+  notes:
+    description: "The Release Notes description"
+runs:
+  using: "node12"
+  main: "index.js"
+branding:
+  icon: "lock"
+  color: "green"
