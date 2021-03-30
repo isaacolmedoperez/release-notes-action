@@ -1,39 +1,40 @@
-const core = require('@actions/core')
-const github = require('@actions/github')
-const fetch = require('node-fetch')
-const fs = require('fs')
+const core = require("@actions/core");
+const github = require("@actions/github");
+const MilestoneSource = require("./milestone-source");
+const Reporter = require("./reporter");
 
 async function run() {
-    try {
-        const nowSecureToken = core.getInput('token');
-        const filePath = core.getInput('artifact_path');
-        const stats = fs.statSync(filePath);
-        const fileSizeInBytes = stats.size;
-        console.log(`File ${filePath} with ${fileSizeInBytes} bytes`)
-        if (!nowSecureToken || nowSecureToken.length < 1) {
-            throw new Error('No token was provided')
-        }
-        let readStream = fs.createReadStream(filePath);
-        await fetch('https://lab-api.nowsecure.com/build/', {
-            method: 'POST',
-            headers: {
-                "Authorization": "Bearer " + nowSecureToken,
-                "Content-length": fileSizeInBytes,
-                "Content-type": 'application/x-www-form-urlencoded'
-            },
-            body: readStream
-        }).then(data => data.json())
-            .then(resp => {
-                if (resp.message && resp.name)
-                    throw new Error(resp.message)
-                core.setOutput('appId', resp.application)
-                core.setOutput('taskId', resp.task)
-                console.log("File successfully sent to Now Secure")
-            })
+  try {
+    // Gathering inputs
+    const prefix = core.getInput("tag_prefix");
+    const releaseVersion = core.getInput("release_version");
+    const reporterMode = core.getInput("reporter_mode");
+    const owner = github.context.payload.repository_owner;
+    const repository = github.context.payload.repository.replace(
+      `${owner}/`,
+      ""
+    );
+    const token = github.context.payload.token;
 
-    } catch (error) {
-        core.setFailed(error.message);
-    }
+    // Create instances
+    let client = new MilestoneSource(owner, repository, token);
+    let reporter = new Reporter();
+
+    // Collecting information to produce the report
+    let lastVersion = await client
+      .getLatestRelease()
+      .then((it) => `${prefix}${it}`);
+    let newVersion = `${prefix}${releaseVersion}`;
+    let startingSHA = await client.getTagSHA(lastVersion);
+    let finalSHA = await client.getTagSHA(newVersion);
+    let prs = await client.getCommitsBetween(startingSHA, finalSHA);
+
+    // Producing report
+    let output = reporter.generate(prs);
+    core.setOutput("notes", output);
+  } catch (error) {
+    core.setFailed(error.message);
+  }
 }
 
-run()
+run();
