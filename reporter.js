@@ -11,8 +11,9 @@ Array.prototype.groupBy = function (func) {
 };
 
 module.exports = class Reporter {
-  constructor(version) {
+  constructor(version, url) {
     this.version = version;
+    this.url = url;
   }
 
   generate(tasks) {
@@ -25,7 +26,7 @@ module.exports = class Reporter {
       .forEach((i) => {
         text += `### ${i.name}\n`;
         i.items.forEach((it) => {
-          text += `[${it.id}](https://payclip.atlassian.net/browse/${it.id}): ${it.title}\n`;
+          text += `[${it.id}](${this.url}${it.id}): ${it.title}\n`;
         });
       });
     return text;
