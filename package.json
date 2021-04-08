@@ -1,6 +1,6 @@
 {
   "name": "release-notes-action",
-  "version": "1.0.0",
+  "version": "0.2.0",
   "description": "Generates a Release Notes description based on the commit messages since the last release",
   "main": "index.js",
   "scripts": {

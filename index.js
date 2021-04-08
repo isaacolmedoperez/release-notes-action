@@ -21,15 +21,20 @@ async function run() {
     let lastVersion = await client
       .getLatestRelease()
       .then((it) => `${prefix}${it}`);
+    console.log(`Latest release identified: ${lastVersion}`);
     let newVersion = `${prefix}${releaseVersion}`;
     let startingSHA = await client.getTagSHA(lastVersion);
+    console.log(`Latest release commit: ${startingSHA}`);
     let finalSHA = await client.getTagSHA(newVersion);
+    console.log(`This release commit: ${finalSHA}`);
     let prs = await client.getCommitsBetween(startingSHA, finalSHA);
+    console.log(`${prs.length} PRs collected`);
 
     // Producing report
     let output = reporter.generate(prs);
     core.setOutput("notes", output);
   } catch (error) {
+    console.log(error);
     core.setFailed(error.message);
   }
 }
