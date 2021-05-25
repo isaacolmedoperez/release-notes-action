@@ -1,104 +1,94 @@
-const { Octokit } = require("@octokit/rest");
+const { graphql } = require("@octokit/graphql");
 const ReleaseItem = require("./release-item");
 Array.prototype.distinct = function () {
   return this.filter((it, i) => this.indexOf(it) === i);
 };
 
+const query_LastReleaseVersion = `
+releases(last: 1) {
+  nodes {
+    name
+  }
+}
+`;
+
+const query_LastReleaseCursor = function (version) {
+  return `
+ref(qualifiedName:"refs/tags/${version}") {
+  target {
+    ... on Commit {
+      history(first:1) {
+        edges {
+          cursor
+        }
+      }
+    }
+  }
+}`;
+};
+
+const query_PullsBetween = function (lastReleaseCursor, releaseTag) {
+  return `
+  changes: ref(qualifiedName: "refs/tags/${releaseTag}") {
+    target {
+      ... on Commit {
+        history(after: "${lastReleaseCursor}") {
+          edges {
+            node {
+              associatedPullRequests(first:50) {
+                nodes {
+                  title
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }`;
+};
+
 module.exports = class MilestoneSource {
   constructor(org, repo, token) {
-    this.org = org;
+    this.owner = org;
     this.repo = repo;
-    this.octoClient = new Octokit({
-      auth: token,
-      timeZone: "America/Mexico_City",
+    this.client = graphql.defaults({
+      headers: {
+        authorization: `token ${token}`,
+      },
     });
   }
 
-  getLatestRelease() {
-    let setup = {
-      owner: this.org,
-      repo: this.repo,
-      per_page: 1,
-    };
-    return this.octoClient.repos
-      .listReleases(setup)
-      .then((it) => it.data.map((i) => i.name)[0]);
+  buildQuery(query) {
+    return `
+    {
+      repository(owner: "${this.owner}", name: "${this.repo}") {
+        ${query}
+      }
+    }`;
   }
 
-  getTagSHA(tag) {
-    let setup = {
-      owner: this.org,
-      repo: this.repo,
-    };
-    return this.octoClient.git
-      .getRef(Object.assign({ ref: "tags/" + tag }, setup))
-      .then((it) => {
-        if (it.data.object.type == "commit") {
-          return it.data.object.sha;
-        }
-        return this.octoClient.git
-          .getTag(Object.assign({ tag_sha: it.data.object.sha }, setup))
-          .then((it) => it.data.object.sha);
-      });
+  async getLatestRelease() {
+    const result = await this.client(this.buildQuery(query_LastReleaseVersion));
+    return result.repository.releases.nodes[0].name;
   }
 
-  getLastReleaseDateFromTag(tag) {
-    let setup = {
-      owner: this.org,
-      repo: this.repo,
-    };
-    return this.getTagSHA(tag)
-      .then((it) =>
-        this.octoClient.git.getCommit(Object.assign({ commit_sha: it }, setup))
+  async getTagCursor(version) {
+    const result = await this.client(
+      this.buildQuery(query_LastReleaseCursor(version))
+    );
+    return result.repository.ref.target.history.edges[0].cursor;
+  }
+
+  async getPullsSinceLastRelease(lastReleaseCursor, releaseTag) {
+    const result = await this.client(
+      this.buildQuery(query_PullsBetween(lastReleaseCursor, releaseTag))
+    );
+    return result.repository.changes.target.history.edges
+      .flatMap((edge) =>
+        edge.node.associatedPullRequests.nodes.map((node) => node.title)
       )
-      .then((it) => it.data.author.date);
-  }
-
-  getPullRequestsInThePeriod(startDate, endDate, targetBranch) {
-    let query = `repo:${this.org}/${this.repo} is:pr is:merged merged:${startDate}..${endDate} base:${targetBranch}`;
-    return this.octoClient.search
-      .issuesAndPullRequests({
-        q: query,
-        per_page: 200,
-      })
-      .then((it) => it.data.items.map((i) => new ReleaseItem(i.title)));
-  }
-
-  getCommitsBetween(startSHA, endSHA) {
-    return this.octoClient.repos
-      .compareCommits({
-        owner: this.org,
-        repo: this.repo,
-        base: startSHA,
-        head: endSHA,
-      })
-      .then((it) =>
-        it.data.commits
-          .map((i) => i.commit.message.match(/Merge pull request #(\d+)/))
-          .filter((i) => i)
-          .map((i) => i[1])
-          .distinct()
-      )
-      .then((it) => {
-        return Promise.all(
-          it
-            .map((i) =>
-              this.octoClient.issues
-                .get({
-                  owner: this.org,
-                  repo: this.repo,
-                  issue_number: i,
-                })
-                .then((i) => {
-                  try {
-                    return new ReleaseItem(i.data.title);
-                  } catch (e) {
-                    return null;
-                  }
-                })
-            )
-            .filter((it) => it)
-        );
-      });
+      .distinct()
+      .map((item) => new ReleaseItem(item));
   }
 };
