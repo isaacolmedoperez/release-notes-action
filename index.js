@@ -19,20 +19,23 @@ async function run() {
     let reporter = new Reporter(releaseVersion, taskServiceURL);
 
     // Collecting information to produce the report
-    let lastVersion = await client
-      .getLatestRelease()
-      .then((it) => `${prefix}${it}`);
+    let lastVersion = await client.getLatestRelease();
+    lastVersion = `${prefix}${lastVersion}`;
     console.log(`Latest release identified: ${lastVersion}`);
+    let lastVersionCursor = await client.getTagCursor(lastVersion);
+    console.log(`Last version cursor: ${lastVersionCursor}`);
     let newVersion = `${prefix}${releaseVersion}`;
-    let startingSHA = await client.getTagSHA(lastVersion);
-    console.log(`Latest release commit: ${startingSHA}`);
-    let finalSHA = await client.getTagSHA(newVersion);
-    console.log(`This release commit: ${finalSHA}`);
-    let prs = await client.getCommitsBetween(startingSHA, finalSHA);
-    console.log(`${prs.length} PRs collected`);
+    console.log(`This release is: ${newVersion}`);
+    let pulls = await client.getPullsSinceLastRelease(
+      lastVersionCursor,
+      newVersion
+    );
+    console.log(
+      `${pulls.length} PRs collected between ${lastVersion} and ${newVersion}`
+    );
 
     // Producing report
-    let output = reporter.generate(prs);
+    let output = reporter.generate(pulls);
     core.setOutput("notes", output);
   } catch (error) {
     console.log(error);

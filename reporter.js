@@ -19,6 +19,7 @@ module.exports = class Reporter {
   generate(tasks) {
     var text = "";
     tasks
+      .filter((a) => a)
       .sort((a, b) => {
         return a.compare(b);
       })
